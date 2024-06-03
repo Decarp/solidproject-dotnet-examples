@@ -3,33 +3,40 @@
 @using SolidDotNet
 @using System.Diagnostics
 @using System.Text
+@using System.Text.Json
 @using VDS.RDF
 @using VDS.RDF.Parsing
 @inject SolidDotNet.SolidClient client
 @inject NavigationManager navigation
 <h3>LoginWithClient</h3>
 
-<p>This page behaves mostly the same as the Login page, except that we've moved most of the heavy lifting into a seperate SolidDotNetClient.cs object.</p>
-<p>For this demo, first click the "Login To Solid Community Server" button. This will redirect you to the Community Solid Server at the "identityProvider"
-    variable. That function will use Dynamic Registration to identify this app to the Community Solid Server, then attempt to log us in and redirect back
+<p>This page behaves mostly the same as the Login page, except that we've moved most of the heavy lifting into a
+    seperate SolidDotNetClient.cs object.</p>
+<p>For this demo, first click the "Login To Solid Community Server" button. This will redirect you to the Community
+    Solid Server at the "identityProvider"
+    variable. That function will use Dynamic Registration to identify this app to the Community Solid Server, then
+    attempt to log us in and redirect back
     to this page.
 </p>
 
-<p>Once you've logged in, you can click the "Get Card Information" to try and read what's currently set in your WebID on the server. This may return
+<p>Once you've logged in, you can click the "Get Card Information" to try and read what's currently set in your WebID on
+    the server. This may return
     nothing if you've just started up the Community Server.
 </p>
 
-<p>Finally, you can type something for a name and click "Save New Name" which will attempt to update your WebId at <a href="http://localhost:3000/profile/card#me">
-    http://localhost:3000/profile/card#me</a>. If that is successful, you can navigate to that location and download the file and open it in the text editor of your choice to verify that your new name
+<p>Finally, you can type something for a name and click "Save New Name" which will attempt to update your WebId at <a
+        href="http://localhost:3000/profile/card#me">
+        http://localhost:3000/profile/card#me</a>. If that is successful, you can navigate to that location and download
+    the file and open it in the text editor of your choice to verify that your new name
     has been saved correctly, or alternatively you may click "Get Card Information" to try and read your new name again.
 </p>
 
 <p>
     For more information on Solid and the login process:
-    <ul>
-        <li><a href="https://solid.github.io/solid-oidc/">Solid OIDC</a></li>
-        <li><a href="https://solid.github.io/solid-oidc/primer/">Solid OIDC Primer</a></li>
-    </ul>
+<ul>
+    <li><a href="https://solid.github.io/solid-oidc/">Solid OIDC</a></li>
+    <li><a href="https://solid.github.io/solid-oidc/primer/">Solid OIDC Primer</a></li>
+</ul>
 </p>
 
 <p>
@@ -37,21 +44,27 @@
 </p>
 
 
+
 <p>
     <button class="btn btn-primary" @onclick="GetCardInformation">Get Card Information</button>
 </p>
 
+
+
 <p>
     <label>
         CurrentName:
-        <input value="@currentName"
-               @onchange="@((ChangeEventArgs __e) => currentName = __e?.Value?.ToString())" />
+        <input value="@currentName" @onchange="@((ChangeEventArgs __e) => currentName = __e?.Value?.ToString())" />
     </label>
 </p>
 
 
 <p>
     <button class="btn btn-primary" @onclick="SetNameAsync">Save New Name</button>
+</p>
+
+<p>
+    <button class="btn btn-primary" @onclick="ScriptAuth">Test Script Auth</button>
 </p>
 
 @code {
@@ -90,7 +103,8 @@
 
     void GetQueryStringValues()
     {
-        // when we're redirected back from the Solid Server after the user logs in, we're given an app code from login that we need to get tokens
+        // when we're redirected back from the Solid Server after the user logs in, we're given an app code from login that we
+        @* need to get tokens *@
         // so let's save that
         string appCode;
         navigation.TryGetQueryString<string>("code", out appCode);
@@ -124,6 +138,7 @@
         //await GetCardManuallyAsync();
         GetCardWithRdf();
     }
+
 
     /// <summary>
     /// Not fully implemented. Manually read the contents of the RDF document at the Card Uri for the first name.
@@ -181,7 +196,7 @@
             string dpopLine = "DPoP " + authToken;
 
             httpClient.DefaultRequestHeaders.Clear();
-            
+
             var contentBuilder = new StringBuilder();
 
             // this is a SPARQL statement, copied from the Solid Demo (had to sniff the PATCH request with Fiddler for this)
@@ -200,16 +215,16 @@
 
             // specify that this is a sparql statement
             request.Content.Headers.Add("content-type", "application/sparql-update");
-            
+
             // required
             request.Headers.Add("authorization", dpopLine);
             // required
             request.Headers.Add("dpop", customDPoP);
 
             // not sure if these are required
-            request.Headers.Add("Referer",  navigation.BaseUri + "loginclient");
-            request.Headers.Add("Origin",  navigation.BaseUri + "loginclient");
-            
+            request.Headers.Add("Referer", navigation.BaseUri + "loginclient");
+            request.Headers.Add("Origin", navigation.BaseUri + "loginclient");
+
             DebugOut(request.ToString());
             DebugOut(contentBuilder.ToString());
 
@@ -232,6 +247,256 @@
         {
             Console.WriteLine(item);
             Debug.WriteLine(item);
+        }
+    }
+
+    private async Task ScriptAuth()
+    {
+        Console.WriteLine("ScriptAuth");
+
+        string podName = "my-pod";
+        string authorization = await LoginAsync("test@example.com", "my-password");
+        string authString = await GenerateAccountTokenAsync(authorization, podName);
+        string accessToken = await GenerateOIDCTokenAsync(authString);
+        Console.WriteLine("accessToken");
+        Console.WriteLine(accessToken);
+        await SaveFileAsync(podName, "myfile.txt", "text/plain", "testcsharp", accessToken);
+    }
+
+    public static async Task<string> LoginAsync(string email, string password)
+    {
+        // Create HttpClient instance
+        HttpClient client = new HttpClient();
+
+        // Send the GET request asynchronously
+        HttpResponseMessage indexResponse = await client.GetAsync("http://localhost:3000/.account/");
+
+        // Ensure the request was successful
+        indexResponse.EnsureSuccessStatusCode();
+
+        // Read the content of the response asynchronously
+        string indexResponseBody = await indexResponse.Content.ReadAsStringAsync();
+        // parse to json
+        JsonDocument indexResponseBodyJson = JsonDocument.Parse(indexResponseBody);
+        // check if controls.password.login exists
+        if (indexResponseBodyJson.RootElement.TryGetProperty("controls", out JsonElement controlsElement))
+        {
+            if (controlsElement.TryGetProperty("password", out JsonElement passwordElement))
+            {
+                if (passwordElement.TryGetProperty("login", out JsonElement loginElement))
+                {
+                    // login with value of loginElement
+                    string? loginUrl = loginElement.GetString();
+                    Console.WriteLine($"Login URL: {loginUrl}");
+                    HttpResponseMessage loginResponse = await client.PostAsync(
+                    loginElement.GetString(),
+                    new StringContent(JsonSerializer.Serialize(new { email, password }),
+                    Encoding.UTF8,
+                    "application/json")
+                    );
+                    string loginResponseBody = await loginResponse.Content.ReadAsStringAsync();
+                    JsonDocument loginResponseBodyJson = JsonDocument.Parse(loginResponseBody);
+                    if (loginResponseBodyJson.RootElement.TryGetProperty("authorization", out JsonElement authorizationElement))
+                    {
+                        string? authorization = authorizationElement.GetString();
+                        if (authorization != null)
+                        {
+                            return authorization;
+                        }
+                        else
+                        {
+                            throw new Exception("authorization token from login not found");
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception("authorization token from login not found");
+                    }
+                }
+                else
+                {
+                    throw new Exception("login url not found in controls");
+                }
+            }
+            else
+            {
+                throw new Exception("password controls not found");
+            }
+        }
+        else
+        {
+            throw new Exception("controls not found");
+        }
+    }
+
+    public static async Task<string> GenerateAccountTokenAsync(string authorization, string podName)
+    {
+        // // Here we request the server to generate a token on our account
+        // const loggedinIndexResponse = await fetch('http://localhost:3000/.account/', {
+        // headers: authHeader,
+        // });
+        // const { controls: loggedinControls } = await loggedinIndexResponse.json();
+        // const response = await fetch(loggedinControls.account.clientCredentials, {
+        // method: 'POST',
+        // headers: { ...authHeader, 'content-type': 'application/json' },
+        // // The name field will be used when generating the ID of your token.
+        // // The WebID field determines which WebID you will identify as when using the token.
+        // // Only WebIDs linked to your account can be used.
+        // body: JSON.stringify({ name: 'my-token', webId: `http://localhost:3000/${podName}/profile/card#me` }),
+        // });
+
+        // // These are the identifier and secret of your token.
+        // // Store the secret somewhere safe as there is no way to request it again from the server!
+        // // The `resource` value can be used to delete the token at a later point in time.
+        // // console.log(await response.json());
+        // const { id, secret, resource } = await response.json();
+        // console.log({ id, secret, resource });
+        // // Both the ID and the secret need to be form-encoded.
+        // const authString = `${encodeURIComponent(id)}:${encodeURIComponent(secret)}`;
+        // // A key pair is needed for encryption.
+        // // This function from `solid-client-authn` generates such a pair for you.
+
+        string authHeader = $"CSS-Account-Token {authorization}";
+        HttpClient client = new HttpClient();
+        client.DefaultRequestHeaders.Add("Authorization", authHeader);
+        HttpResponseMessage indexResponse = await client.GetAsync("http://localhost:3000/.account/");
+        indexResponse.EnsureSuccessStatusCode();
+        string indexResponseBody = await indexResponse.Content.ReadAsStringAsync();
+        JsonDocument indexResponseBodyJson = JsonDocument.Parse(indexResponseBody);
+        if (indexResponseBodyJson.RootElement.TryGetProperty("controls", out JsonElement controlsElement))
+        {
+            if (controlsElement.TryGetProperty("account", out JsonElement accountElement))
+            {
+                if (accountElement.TryGetProperty("clientCredentials", out JsonElement clientCredentialsElement))
+                {
+                    HttpResponseMessage clientCredentialsResponse = await client.PostAsync(
+                    clientCredentialsElement.GetString(),
+                    new StringContent(JsonSerializer.Serialize(new
+                    {
+                        name = "my-token",
+                        webId =
+                    $"http://localhost:3000/{podName}/profile/card#me"
+                    }),
+                    Encoding.UTF8,
+                    "application/json")
+                    );
+                    string clientCredentialsResponseBody = await clientCredentialsResponse.Content.ReadAsStringAsync();
+                    JsonDocument clientCredentialsResponseBodyJson = JsonDocument.Parse(clientCredentialsResponseBody);
+                    if (clientCredentialsResponseBodyJson.RootElement.TryGetProperty("id", out JsonElement idElement) &&
+                    clientCredentialsResponseBodyJson.RootElement.TryGetProperty("secret", out JsonElement secretElement) &&
+                    clientCredentialsResponseBodyJson.RootElement.TryGetProperty("resource", out JsonElement resourceElement))
+                    {
+                        string? id = idElement.GetString();
+                        string? secret = secretElement.GetString();
+                        // ensure id and secret are not null
+                        if (id != null && secret != null)
+                        {
+                            // form-encode the id and secret (RFC 1738)
+                            string authString = $"{Uri.EscapeDataString(id)}:{Uri.EscapeDataString(secret)}";
+                            Console.WriteLine("authString");
+                            Console.WriteLine(authString);
+                            return authString;
+                        }
+                        else
+                        {
+                            throw new Exception("id, secret, or resource not found in clientCredentials response");
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception("id, secret, or resource not found in clientCredentials response");
+                    }
+                }
+                else
+                {
+                    throw new Exception("clientCredentials url not found in controls");
+                }
+            }
+            else
+            {
+                throw new Exception("account controls not found");
+            }
+        }
+        else
+        {
+            throw new Exception("controls not found");
+        }
+    }
+
+    public async Task<string> GenerateOIDCTokenAsync(string authString)
+    {
+        // TESTING
+        // string dpop =
+        @*
+"eyJhbGciOiJFUzI1NiIsImp3ayI6eyJjcnYiOiJQLTI1NiIsImt0eSI6IkVDIiwieCI6ImtXNlhoX0JESnBzbVJqV29aTFg3eHhOSjNZNGZSV0hYamNWWno0N01EYmciLCJ5IjoiWW1jSzd0dXJLVTdBaUxZQWJTM2FJRXNLWHBkcXpxMjRIYXdydTVNa0JkRSIsImFsZyI6IkVTMjU2In0sInR5cCI6ImRwb3Arand0In0.eyJodHUiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAvLm9pZGMvdG9rZW4iLCJodG0iOiJQT1NUIiwianRpIjoiNGM0MzdlMWUtYzFhYS00NGJmLWIwM2MtYjJiNzM1MjI1YWM4IiwiaWF0IjoxNzE2OTc0MTE4fQ.8Obfm3NjvBwdCXwVxCb_TnSEIO4wfYbuuUeXklMKkcYA-JF-0AqzzOUIfU_eHyltZ7Jw73rN80bGNQvCZO9rUQ";
+*@
+        string tokenUrl = "http://localhost:3000/.oidc/token";
+        HttpClient httpClient = new HttpClient();
+        httpClient.DefaultRequestHeaders.Add(
+        "Authorization",
+        $"Basic {Convert.ToBase64String(Encoding.UTF8.GetBytes(authString))}"
+        );
+        // client.DefaultRequestHeaders.Add("DPoP", dpop);
+        @* string customDPoP = string.Empty; *@
+        string customDPoP = client.BuildJwtForContent("POST", tokenUrl);
+        Console.WriteLine("customDPoP1");
+        Console.WriteLine(customDPoP);
+        @* httpClient.DefaultRequestHeaders.Add("DPoP", customDPoP); *@
+        httpClient.DefaultRequestHeaders.Add("dpop", customDPoP);
+        HttpResponseMessage response = await httpClient.PostAsync(tokenUrl, new
+        StringContent("grant_type=client_credentials&scope=webid", Encoding.UTF8, "application/x-www-form-urlencoded"));
+        response.EnsureSuccessStatusCode();
+        string responseBody = await response.Content.ReadAsStringAsync();
+        JsonDocument responseBodyJson = JsonDocument.Parse(responseBody);
+        if (responseBodyJson.RootElement.TryGetProperty("access_token", out JsonElement accessTokenElement))
+        {
+            string? accessToken = accessTokenElement.GetString();
+            if (accessToken != null)
+            {
+                return accessToken;
+            }
+            else
+            {
+                throw new Exception("No access token found in response.");
+            }
+        }
+        else
+        {
+            throw new Exception("No access token found in response.");
+        }
+    }
+
+    public async Task SaveFileAsync(string podName, string fileName, string contentType, string fileContent, string
+    accessToken)
+    {
+        // string dpop =
+        @*
+"eyJhbGciOiJFUzI1NiIsImp3ayI6eyJjcnYiOiJQLTI1NiIsImt0eSI6IkVDIiwieCI6ImtXNlhoX0JESnBzbVJqV29aTFg3eHhOSjNZNGZSV0hYamNWWno0N01EYmciLCJ5IjoiWW1jSzd0dXJLVTdBaUxZQWJTM2FJRXNLWHBkcXpxMjRIYXdydTVNa0JkRSIsImFsZyI6IkVTMjU2In0sInR5cCI6ImRwb3Arand0In0.eyJodHUiOiJodHRwOi8vbG9jYWxob3N0OjMwMDAvbXktcG9kL2ZvbGRlci9teWZpbGUudHh0IiwiaHRtIjoiUFVUIiwianRpIjoiZWNkMTcyNDYtNTRlYy00NzNjLWJhMDItNzNkMzRkNmJkMmVhIiwiaWF0IjoxNzE2OTc0MTE4fQ.U8r_BRquyvXR36h5mSh4ZUWODrs8LG_vfad-zYQNEZg2BTTIe6gDkBjGiVOHdVRgrjO7E26ByiidqY62_G2mlA";
+*@
+        string fileUrl = $"http://localhost:3000/{podName}/folder/{fileName}";
+        HttpClient httpClient = new HttpClient();
+        // client.DefaultRequestHeaders.Add("DPoP", dpop);
+
+        @* client.DefaultRequestHeaders.Add("dpop", BuildJwtForContent("PUT", fileUrl)); *@
+        string customDPoP = client.BuildJwtForContent("PUT", fileUrl);
+        Console.WriteLine("accessToken");
+        Console.WriteLine(accessToken);
+        Console.WriteLine("customDPoP2");
+        Console.WriteLine(customDPoP);
+        httpClient.DefaultRequestHeaders.Add("authorization", $"DPoP {accessToken}");
+        httpClient.DefaultRequestHeaders.Add("dpop", customDPoP);
+        HttpResponseMessage response = await httpClient.PutAsync(fileUrl, new StringContent(fileContent, Encoding.UTF8,
+        contentType));
+        Console.WriteLine(response);
+        response.EnsureSuccessStatusCode();
+        string? location = response.Headers.Location?.ToString();
+        if (location != null)
+        {
+            Console.WriteLine($"File saved at {location}");
+        }
+        else
+        {
+            throw new Exception("No location header found in response.");
         }
     }
 
